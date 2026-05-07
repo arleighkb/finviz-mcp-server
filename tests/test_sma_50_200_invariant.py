@@ -91,7 +91,11 @@ class TestSma50Above200FieldGetter:
                 results,
                 invariants=[sma_50_above_sma_200()],
             )
-        assert "UNVERIFIABLE" in str(excinfo.value) or "sma_50 > sma_200" in str(excinfo.value)
+        # The point of this test is to distinguish "no data was checkable"
+        # (UNVERIFIABLE) from "data was checked and found to violate the
+        # rule" (a regular VIOLATION). Asserting only on the invariant
+        # name would erase that distinction.
+        assert "UNVERIFIABLE" in str(excinfo.value)
 
     def test_violation_when_check_actually_fails(self):
         """
