@@ -332,7 +332,18 @@ def sma_50_above_sma_200() -> Invariant:
     the current price. Optional because Finviz may omit either SMA on
     individual rows; the framework still fails if every row lacks the
     fields.
+
+    The ``field_getter`` returns ``None`` whenever EITHER SMA is missing
+    so the optional-invariant framework treats that row as "field
+    missing" instead of "field present, check failed". Otherwise a row
+    with only ``sma_50`` populated would be counted as verified and
+    then fail in ``check()`` when ``sma_200`` turns out to be ``None``.
     """
+    def _pair(s):
+        if s.sma_50 is None or s.sma_200 is None:
+            return None
+        return (s.sma_50, s.sma_200)
+
     return Invariant(
         name="sma_50 > sma_200",
         description="50-day SMA above 200-day SMA",
@@ -341,7 +352,7 @@ def sma_50_above_sma_200() -> Invariant:
             and s.sma_200 is not None
             and s.sma_50 > s.sma_200
         ),
-        field_getter=lambda s: s.sma_50,
+        field_getter=_pair,
         optional=True,
     )
 
