@@ -42,26 +42,31 @@
 
 | ファイル | 状態 | PR | 備考 |
 |---|---|---|---|
-| `.flake8` | 🟡 In Progress | [#30](https://github.com/tradermonty/finviz-mcp-server/pull/30) | Linter 設定 |
-| `.pre-commit-config.yaml` | 🟡 In Progress | [#30](https://github.com/tradermonty/finviz-mcp-server/pull/30) | pre-commit hooks |
-| `.github/workflows/ci.yml` | 🟡 In Progress | [#30](https://github.com/tradermonty/finviz-mcp-server/pull/30) | GitHub Actions CI（lint/typecheck は informational、test は explicit allowlist） |
+| `.flake8` | 🟢 Done | [#30](https://github.com/tradermonty/finviz-mcp-server/pull/30) | Linter 設定 |
+| `.pre-commit-config.yaml` | 🟢 Done | [#30](https://github.com/tradermonty/finviz-mcp-server/pull/30) | pre-commit hooks |
+| `.github/workflows/ci.yml` | 🟢 Done | [#30](https://github.com/tradermonty/finviz-mcp-server/pull/30) | GitHub Actions CI（lint/typecheck は informational、test は explicit allowlist） |
 | `tests/conftest.py` | 🟢 Done | [#16](https://github.com/tradermonty/finviz-mcp-server/pull/16) | テスト共通 fixture (e2e auto-marker / auto-skip) |
 | `tests/test_e2e_screener_invariants.py` | 🟢 Done | [#16](https://github.com/tradermonty/finviz-mcp-server/pull/16) | E2E スクリーナー不変式テスト |
 | `scripts/run_e2e_invariants.py` | 🟢 Done | [#16](https://github.com/tradermonty/finviz-mcp-server/pull/16) | E2E 実行スクリプト |
 | `tests/E2E_TESTING.md` | 🟢 Done | [#16](https://github.com/tradermonty/finviz-mcp-server/pull/16) | E2E テスト手順書 |
 
-PR #30 のフォローアップ:
+PR #30 のフォローアップ（未着手、別 phase で対応予定）:
 1. **Codebase format PR** — `black src/ tests/` + `isort src/ tests/` 実行 + flake8 違反修正 → lint job を required (`continue-on-error: false`) に昇格。
 2. **Marker separation (Deferred Risk R2)** — `tests/conftest.py` の `LIVE_TEST_FILENAME_PATTERNS` を拡張、または該当ファイルに `pytestmark = [pytest.mark.e2e]` を付与 → CI test job を `pytest tests/` に拡大。
 3. **mypy strictness 調整** → typecheck job を required に昇格。
 
-## Recommended Merge Order (per repository-prs-review-2026-05-07.md)
+## Snapshot (2026-05-09)
 
-1. **#8** (runtime dependency packaging) — まず最初にマージ
-2. **#10**, **#14** (test tooling hygiene) — 並列マージ可
-3. **#12** (user-facing formatter bug fix)
-4. **#15** (tracking metadata) — チームが tracker 採用に合意した後
-5. **#3** は現状でマージしない。Request changes で分割を依頼
+| 観点 | 値 |
+|---|---|
+| Findings | 14（🟢 Done 11 / ⛔ Blocked 3） |
+| Open PRs | 0 |
+| Open Issues | 0 |
+| Quality Infrastructure | 7/7 main 取り込み済み |
+| E2E suite | 75 passed / 3 skipped (legitimate) / 0 failed |
+| Offline regression suite | 48 passed |
+
+⛔ Blocked 3 件（#6 / #7 / #8）はすべて外部 author の PR #3 への要対応で、本リポジトリ側からの追加対応は不要。
 
 ## Update History
 
@@ -77,3 +82,4 @@ PR #30 のフォローアップ:
 - 2026-05-08: Issue #19 (`eps_revision` 不在) について、複数 Finviz Elite view (v=151/152/120/130/141/161/170) を probe して "EPS Revision" カラムがどの view にも存在しないことを確定 → Option C (仕様化) を採用した PR #28 を作成・マージ。`models.py` / `base.py` に limitation コメント追加、forward-compat の双方向 parser unit test 2件 (`tests/test_parser_unit_contracts.py::TestEpsRevisionUnfetchable`) で pin。Finding #11 を 🟢 Done に更新。bonus として `ta_highlow52w_a30h` の Finviz semantic 不整合を実データ (17/725 stocks beyond -30%) で確認、E2E コメントを更新。
 - 2026-05-08: Quality Infrastructure (`.flake8` / `.pre-commit-config.yaml` / `.github/workflows/ci.yml`) を PR #30 で取り込み開始。CI は existing codebase の状態を考慮し、lint/typecheck は informational、test は explicit allowlist (今日の offline regression tests 7ファイル / 48 tests) で起動。フォローアップとして codebase format PR、marker separation (R2)、mypy strictness 調整を予定。
 - 2026-05-09: E2E suite full run で 12 件 fail を確認。原因 3 カテゴリ（FastMCP `convert_result()` の tuple 返却、`get_stock_news` のパラメータ名 drift、`McpToolError` wrap / catch+error TextContent の error model 二系統）すべてテスト側修正で解消した PR #35 を作成・マージ → Issue #34 close。**75 passed / 3 skipped (legitimate 市場閉場) / 0 failed** で E2E suite green 化。Finding #14 として追加。server.py / src/finviz_client/* は不変。
+- 2026-05-09: Quality Infrastructure 3 ファイル（`.flake8` / `.pre-commit-config.yaml` / `.github/workflows/ci.yml`）の Status を 🟡 In Progress → 🟢 Done に修正（PR #30 は既に 04:13 にマージ済みだったが tracker 反映が漏れていた）。Obsolete な "Recommended Merge Order" section を削除し、Snapshot セクションで現在のリポジトリ状態を集約表示。これにより全 14 findings のうち 11 件解決・3 件 ⛔ Blocked（外部 PR #3 待ち）の最終形に整理。
