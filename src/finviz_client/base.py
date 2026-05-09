@@ -562,7 +562,7 @@ class FinvizClient:
             if 'price_change_positive' in filters and filters['price_change_positive']:
                 filter_parts.append('ta_change_u')
 
-            # 8. 4週パフォーマンスフィルタ（月間プラス / Month Above 0%）: ta_perf_0to-4w
+            # 8. 4週パフォーマンスフィルタ（0%から下落 / 下落後回復候補）: ta_perf_0to-4w
             if 'performance_4w_range' in filters and filters['performance_4w_range'] == '0_to_negative_4w':
                 filter_parts.append('ta_perf_0to-4w')
 
@@ -1019,7 +1019,7 @@ class FinvizClient:
         # 注意: price_change_min は line 787-815 の汎用パスで一元処理する
         # （プリセット判定は生入力で行うため、そちらの実装を参照）
 
-        # 4週パフォーマンス範囲フィルタ（月間プラス / Month Above 0%）
+        # 4週パフォーマンス範囲フィルタ（0%から下落 / 下落後回復候補）
         if 'performance_4w_range' in filters and filters['performance_4w_range'] == '0_to_negative_4w':
             params['f'] = params.get('f', '') + 'ta_perf_0to-4w,'
         
