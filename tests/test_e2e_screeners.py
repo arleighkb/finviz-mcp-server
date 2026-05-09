@@ -16,6 +16,11 @@ from src.finviz_client.base import FinvizClient
 from src.finviz_client.news import FinvizNewsClient
 from src.finviz_client.sector_analysis import FinvizSectorAnalysisClient
 
+# FastMCP wraps any exception raised inside a tool function in ``ToolError``
+# at the boundary. Import it under an alias so error-path tests can
+# distinguish the boundary error from local domain exceptions.
+from mcp.server.fastmcp.exceptions import ToolError as McpToolError
+
 # Configure logging for tests
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -402,11 +407,17 @@ class TestFinvizScreenersE2E:
 
     @pytest.mark.asyncio
     async def test_get_stock_news(self):
-        """Test stock news retrieval."""
+        """Test stock news retrieval.
+
+        Note: ``get_stock_news`` accepts the parameter name ``tickers``
+        (plural, ``Union[str, List[str]]``). This test previously used
+        ``ticker`` (singular) which caused pydantic validation errors;
+        see issue #34.
+        """
         test_cases = [
-            {"ticker": "AAPL", "limit": 10},
-            {"ticker": "MSFT", "limit": 5, "days_back": 7},
-            {"ticker": "GOOGL"},
+            {"tickers": "AAPL", "limit": 10},
+            {"tickers": "MSFT", "limit": 5, "days_back": 7},
+            {"tickers": "GOOGL"},
         ]
 
         with patch.object(FinvizNewsClient, "get_stock_news") as mock_news:
@@ -590,48 +601,100 @@ class TestFinvizScreenersE2E:
 
 
 class TestErrorHandling:
-    """Test error handling and edge cases."""
+    """Test error handling and edge cases.
+
+    Note on the error model (issue #34):
+    - FastMCP wraps any exception raised inside a tool in ``ToolError`` at
+      the boundary (mcp.server.fastmcp.tools.base:110), so tools that
+      *re-raise* (e.g. ``get_stock_fundamentals``) surface as ``McpToolError``.
+    - Tools that *catch and return an error TextContent* (e.g.
+      ``earnings_screener`` at server.py:161) do not raise at all; the
+      caller sees a successful return whose content describes the error.
+    These two patterns coexist intentionally and the assertions below
+    encode each.
+    """
 
     @pytest.mark.asyncio
     async def test_invalid_ticker_format(self):
-        """Test handling of invalid ticker formats."""
+        """Test handling of invalid ticker formats.
+
+        ``get_stock_fundamentals`` re-raises ``ValueError`` (server.py:412);
+        FastMCP wraps it as ``ToolError`` at the boundary.
+        """
         invalid_tickers = ["", "123", "TOOLONG", "in valid"]
 
         for ticker in invalid_tickers:
-            with pytest.raises(ValueError):
+            with pytest.raises(McpToolError):
                 await server.call_tool("get_stock_fundamentals", {"ticker": ticker})
 
     @pytest.mark.asyncio
     async def test_invalid_parameters(self):
-        """Test handling of invalid parameters."""
-        invalid_params = [
-            {"earnings_date": "invalid_date"},
-            {"market_cap": "invalid_cap"},
-            {"min_price": -10.0},
-            {"min_volume": -1000},
-        ]
+        """Test handling of invalid parameters.
 
-        for params in invalid_params:
-            with pytest.raises((ValueError, TypeError)):
-                await server.call_tool("earnings_screener", params)
+        Two distinct error paths are exercised:
+
+        1. ``earnings_date`` is required by the tool signature; omitting
+           it raises pydantic validation → ``McpToolError``.
+        2. With a valid ``earnings_date`` but other invalid values
+           (``market_cap``, ``min_price``, ``min_volume``), the function
+           body's ``validate_*`` checks raise ``ValueError`` which is
+           caught at server.py:161 and surfaced as an error TextContent.
+
+        Both behaviors are pinned here so a future error-model regression
+        is visible.
+        """
+        # Path 1: missing required field → ToolError
+        with pytest.raises(McpToolError):
+            await server.call_tool("earnings_screener", {"market_cap": "invalid_cap"})
+
+        # Path 2: invalid value within otherwise-valid args → error TextContent
+        invalid_value_params = [
+            {"earnings_date": "invalid_date"},
+            {"earnings_date": "this_week", "market_cap": "invalid_cap"},
+            {"earnings_date": "this_week", "min_price": -10.0},
+            {"earnings_date": "this_week", "min_volume": -1000},
+        ]
+        for params in invalid_value_params:
+            result = await server.call_tool("earnings_screener", params)
+            assert result is not None
+            text = result[0][0].text
+            assert ("Error" in text) or ("Invalid" in text)
 
     @pytest.mark.asyncio
     async def test_network_timeout_handling(self):
-        """Test network timeout handling."""
+        """Test network timeout handling.
+
+        ``earnings_screener``'s top-level ``except Exception`` at
+        server.py:161 catches the underlying ``TimeoutError`` and returns
+        an error TextContent; nothing is raised at the boundary.
+        """
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.side_effect = TimeoutError("Network timeout")
 
-            with pytest.raises(TimeoutError):
-                await server.call_tool("earnings_screener", {"earnings_date": "today_after"})
+            result = await server.call_tool(
+                "earnings_screener", {"earnings_date": "today_after"}
+            )
+            assert result is not None
+            assert "Error" in result[0][0].text
+            assert "timeout" in result[0][0].text.lower()
 
     @pytest.mark.asyncio
     async def test_rate_limit_handling(self):
-        """Test rate limit handling."""
+        """Test rate limit handling.
+
+        Same catch-and-surface pattern as the timeout case — the broad
+        ``except Exception`` at server.py:161 returns an error TextContent
+        rather than letting the exception escape.
+        """
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.side_effect = Exception("Rate limit exceeded")
 
-            with pytest.raises(Exception):
-                await server.call_tool("earnings_screener", {"earnings_date": "today_after"})
+            result = await server.call_tool(
+                "earnings_screener", {"earnings_date": "today_after"}
+            )
+            assert result is not None
+            assert "Error" in result[0][0].text
+            assert "rate limit" in result[0][0].text.lower()
 
 
 class TestParameterValidation:
