@@ -152,32 +152,19 @@ class TestParameterCombinations:
         ]
         volume_filters = [1.5, 2.0, 3.0]
         price_changes = [2.0, 5.0, 10.0]
-        sma_filters = [None, "above_sma20", "above_sma50", "above_sma200"]
-
+        # ``volume_surge_screener`` is a fixed-criteria tool with no
+        # arguments. Just exercise that the wrapper invokes the screener
+        # method end-to-end through FastMCP. (The market_cap / SMA / price
+        # parameters used previously were silently ignored by FastMCP and
+        # never reached the implementation.)
         with patch.object(FinvizScreener, "volume_surge_screener") as mock_screener:
             mock_screener.return_value = self.mock_stock_results
 
-            # Test all market cap combinations with volume and price filters
-            for market_cap, volume_filter, price_change in product(
-                market_caps, volume_filters, price_changes[:2]
-            ):
-                params = {
-                    "market_cap": market_cap,
-                    "min_relative_volume": volume_filter,
-                    "min_price_change": price_change
-                }
-
-                result = await server.call_tool("volume_surge_screener", params)
+            for _ in range(3):  # call multiple times to mimic the prior loop scope
+                result = await server.call_tool("volume_surge_screener", {})
                 assert result is not None
 
-            # Test SMA filter combinations
-            for market_cap, sma_filter in product(market_caps[:2], sma_filters):
-                params = {"market_cap": market_cap}
-                if sma_filter:
-                    params["sma_filter"] = sma_filter
-
-                result = await server.call_tool("volume_surge_screener", params)
-                assert result is not None
+            assert mock_screener.call_count >= 3
 
     # ===========================================
     # MULTIPLE STOCKS FUNDAMENTALS COMBINATIONS
@@ -251,26 +238,17 @@ class TestParameterCombinations:
                 result = await server.call_tool("trend_reversion_screener", params)
                 assert result is not None
 
-        # Uptrend screener parameters
-        trend_types = ["strong_uptrend", "moderate_uptrend", "emerging_uptrend"]
-        sma_periods = ["20", "50", "200"]
-        relative_volumes = [1.2, 1.5, 2.0]
-        price_changes = [2.0, 5.0, 8.0]
-
+        # ``uptrend_screener`` is parameterless (fixed criteria); the
+        # previous ``trend_type``/``sma_period``/``relative_volume`` keys
+        # were silently dropped by FastMCP and never reached the screener.
+        # Just verify the wrapper invokes the screener through FastMCP.
         with patch.object(FinvizScreener, "uptrend_screener") as mock_screener:
             mock_screener.return_value = self.mock_stock_results
 
-            for trend_type, sma_period, rel_vol in product(
-                trend_types, sma_periods, relative_volumes
-            ):
-                params = {
-                    "trend_type": trend_type,
-                    "sma_period": sma_period,
-                    "relative_volume": rel_vol
-                }
-
-                result = await server.call_tool("uptrend_screener", params)
+            for _ in range(3):
+                result = await server.call_tool("uptrend_screener", {})
                 assert result is not None
+            assert mock_screener.call_count >= 3
 
     # ===========================================
     # DIVIDEND SCREENER COMBINATIONS
@@ -321,51 +299,30 @@ class TestParameterCombinations:
 
     @pytest.mark.asyncio
     async def test_earnings_timing_combinations(self):
-        """Test earnings timing screeners with various combinations."""
-        
-        # Premarket screener
-        timings = ["today_before", "tomorrow_before", "this_week_before"]
-        market_caps = ["large", "mid", "small"]
-        price_ranges = [
-            {"min_price": 10.0},
-            {"min_price": 25.0},
-            {"min_price": 5.0, "max_price": 100.0}
-        ]
-        price_changes = [1.0, 2.0, 5.0]
+        """Test fixed-criteria earnings timing screeners.
 
-        with patch.object(FinvizScreener, "earnings_premarket_screener") as mock_screener:
-            mock_screener.return_value = self.mock_stock_results
+        Both ``earnings_premarket_screener`` and ``earnings_afterhours_screener``
+        are parameterless (Finviz fixed-filter URLs). The previous
+        ``earnings_timing``/``market_cap``/``min_price_change``/
+        ``min_afterhours_change`` keys were silently dropped by FastMCP and
+        never reached the screener. Test that the wrapper invokes the
+        screener through FastMCP without false-passing on bogus args.
+        """
+        with patch.object(FinvizScreener, "earnings_premarket_screener") as mock_pre:
+            mock_pre.return_value = self.mock_stock_results
 
-            for timing, market_cap, price_change in product(
-                timings, market_caps, price_changes
-            ):
-                params = {
-                    "earnings_timing": timing,
-                    "market_cap": market_cap,
-                    "min_price_change": price_change
-                }
-
-                result = await server.call_tool("earnings_premarket_screener", params)
+            for _ in range(3):
+                result = await server.call_tool("earnings_premarket_screener", {})
                 assert result is not None
+            assert mock_pre.call_count >= 3
 
-        # Afterhours screener
-        afterhours_timings = ["today_after", "yesterday_after", "this_week_after"]
-        afterhours_changes = [3.0, 5.0, 8.0]
+        with patch.object(FinvizScreener, "earnings_afterhours_screener") as mock_after:
+            mock_after.return_value = self.mock_stock_results
 
-        with patch.object(FinvizScreener, "earnings_afterhours_screener") as mock_screener:
-            mock_screener.return_value = self.mock_stock_results
-
-            for timing, change, market_cap in product(
-                afterhours_timings, afterhours_changes, market_caps
-            ):
-                params = {
-                    "earnings_timing": timing,
-                    "min_afterhours_change": change,
-                    "market_cap": market_cap
-                }
-
-                result = await server.call_tool("earnings_afterhours_screener", params)
+            for _ in range(3):
+                result = await server.call_tool("earnings_afterhours_screener", {})
                 assert result is not None
+            assert mock_after.call_count >= 3
 
     # ===========================================
     # NEWS FUNCTION COMBINATIONS
@@ -373,42 +330,41 @@ class TestParameterCombinations:
 
     @pytest.mark.asyncio
     async def test_news_function_combinations(self):
-        """Test news functions with various parameter combinations."""
-        
-        # Stock news combinations
+        """Test news functions with various parameter combinations.
+
+        Aligned to current signatures:
+        - ``get_stock_news(tickers, days_back, news_type)``
+        - ``get_market_news(days_back, max_items)``
+
+        ``limit``/``category`` are not real arguments; FastMCP would silently
+        drop them, so we no longer pass them.
+        """
         tickers = ["AAPL", "MSFT", "GOOGL", "AMZN"]
-        limits = [5, 10, 15, 20]
-        days_back_options = [None, 1, 3, 7]
+        days_back_options = [1, 3, 7]
+        news_types = [None, "all", "stocks_news"]
 
         with patch.object(FinvizNewsClient, "get_stock_news") as mock_news:
             mock_news.return_value = self.mock_news_results
 
-            for ticker, limit in product(tickers, limits):
-                params = {"ticker": ticker, "limit": limit}
-
+            for ticker, days_back in product(tickers, days_back_options):
+                params = {"tickers": ticker, "days_back": days_back}
                 result = await server.call_tool("get_stock_news", params)
                 assert result is not None
 
-            # Test with days_back parameter
-            for ticker, days_back in product(tickers[:2], days_back_options):
-                params = {"ticker": ticker, "limit": 10}
-                if days_back:
-                    params["days_back"] = days_back
-
+            for ticker, news_type in product(tickers[:2], news_types):
+                params = {"tickers": ticker, "days_back": 7}
+                if news_type:
+                    params["news_type"] = news_type
                 result = await server.call_tool("get_stock_news", params)
                 assert result is not None
 
-        # Market news combinations
-        categories = [None, "general", "earnings", "analyst", "insider"]
-        
+        # Market news combinations — current signature is days_back/max_items.
+        max_items_options = [10, 20, 50]
         with patch.object(FinvizNewsClient, "get_market_news") as mock_news:
             mock_news.return_value = self.mock_news_results
 
-            for category, limit in product(categories, limits):
-                params = {"limit": limit}
-                if category:
-                    params["category"] = category
-
+            for days_back, max_items in product(days_back_options, max_items_options):
+                params = {"days_back": days_back, "max_items": max_items}
                 result = await server.call_tool("get_market_news", params)
                 assert result is not None
 
@@ -418,42 +374,53 @@ class TestParameterCombinations:
 
     @pytest.mark.asyncio
     async def test_sector_analysis_combinations(self):
-        """Test sector analysis with various timeframes and sorting options."""
-        
-        timeframes = ["1d", "1w", "1m", "3m", "6m", "ytd", "1y"]
-        sort_options = [None, "performance", "volume", "name"]
+        """Test sector analysis tools with parameter combinations.
 
-        # Sector performance
+        Current signatures take list-typed canonical arguments only:
+        - ``get_sector_performance(sectors=None)``
+        - ``get_industry_performance(industries=None)``
+        - ``get_country_performance(countries=None)``
+
+        ``timeframe``/``sort_by``/``sector`` (singular) are not arguments
+        and were silently dropped by FastMCP previously.
+        """
+        sector_groups = [
+            None,
+            ["Technology"],
+            ["Technology", "Healthcare"],
+            ["Energy", "Utilities", "Financial"],
+        ]
         with patch.object(FinvizSectorAnalysisClient, "get_sector_performance") as mock_sector:
             mock_sector.return_value = self.mock_sector_results
 
-            for timeframe, sort_by in product(timeframes, sort_options):
-                params = {"timeframe": timeframe}
-                if sort_by:
-                    params["sort_by"] = sort_by
-
+            for sectors in sector_groups:
+                params = {} if sectors is None else {"sectors": sectors}
                 result = await server.call_tool("get_sector_performance", params)
                 assert result is not None
 
-        # Industry performance
-        sectors = ["Technology", "Healthcare", "Finance", "Energy"]
-        
+        industry_groups = [
+            None,
+            ["software_application"],
+            ["software_application", "semiconductors"],
+        ]
         with patch.object(FinvizSectorAnalysisClient, "get_industry_performance") as mock_industry:
             mock_industry.return_value = self.mock_sector_results
 
-            for sector, timeframe in product(sectors, timeframes):
-                params = {"sector": sector, "timeframe": timeframe}
-
+            for industries in industry_groups:
+                params = {} if industries is None else {"industries": industries}
                 result = await server.call_tool("get_industry_performance", params)
                 assert result is not None
 
-        # Country performance
+        country_groups = [
+            None,
+            ["usa"],
+            ["usa", "japan"],
+        ]
         with patch.object(FinvizSectorAnalysisClient, "get_country_performance") as mock_country:
             mock_country.return_value = self.mock_sector_results
 
-            for timeframe in timeframes:
-                params = {"timeframe": timeframe}
-
+            for countries in country_groups:
+                params = {} if countries is None else {"countries": countries}
                 result = await server.call_tool("get_country_performance", params)
                 assert result is not None
 
@@ -463,54 +430,44 @@ class TestParameterCombinations:
 
     @pytest.mark.asyncio
     async def test_technical_analysis_combinations(self):
-        """Test technical analysis screener with various criteria combinations."""
-        
-        rsi_ranges = [
-            {"min": 20, "max": 40},
-            {"min": 30, "max": 70},
-            {"min": 60, "max": 80},
-        ]
+        """Test technical analysis screener with various criteria combinations.
 
+        Implementation calls ``finviz_screener.screen_stocks(filters)`` (see
+        ``src/server.py:1937``), so we patch ``screen_stocks`` — patching
+        ``technical_analysis_screener`` would not intercept anything and
+        would let live API calls through. Args are flat per the current
+        signature (``rsi_min``/``rsi_max``/``price_vs_sma20``/...), not the
+        legacy nested ``technical_criteria`` dict.
+        """
+        rsi_ranges = [(20, 40), (30, 70), (60, 80)]
         sma_positions = [
-            "above_sma20", "above_sma50", "above_sma200",
-            "below_sma20", "below_sma50", "below_sma200"
+            ("above", None, None),
+            (None, "above", None),
+            (None, None, "above"),
+            ("below", None, None),
         ]
+        sectors_options = [None, ["Technology"]]
 
-        volume_criterias = [
-            {"min_relative_volume": 1.2},
-            {"min_relative_volume": 1.5},
-            {"min_relative_volume": 2.0},
-        ]
+        with patch.object(FinvizScreener, "screen_stocks") as mock_screen:
+            mock_screen.return_value = self.mock_stock_results
 
-        market_caps = [None, "large", "mid", "small"]
-
-        with patch.object(FinvizScreener, "technical_analysis_screener") as mock_screener:
-            mock_screener.return_value = self.mock_stock_results
-
-            for rsi_range, sma_pos, vol_criteria in product(
-                rsi_ranges, sma_positions, volume_criterias
+            for (rsi_min, rsi_max), (sma20, sma50, sma200) in product(
+                rsi_ranges, sma_positions
             ):
-                technical_criteria = {
-                    "rsi_range": rsi_range,
-                    "sma_position": sma_pos,
-                    "volume_criteria": vol_criteria
-                }
-                params = {"technical_criteria": technical_criteria}
-
+                params: dict = {"rsi_min": rsi_min, "rsi_max": rsi_max}
+                if sma20:
+                    params["price_vs_sma20"] = sma20
+                if sma50:
+                    params["price_vs_sma50"] = sma50
+                if sma200:
+                    params["price_vs_sma200"] = sma200
                 result = await server.call_tool("technical_analysis_screener", params)
                 assert result is not None
 
-            # Test with market cap combinations
-            for market_cap in market_caps:
-                technical_criteria = {
-                    "rsi_range": {"min": 30, "max": 70},
-                    "sma_position": "above_sma50",
-                    "volume_criteria": {"min_relative_volume": 1.5}
-                }
-                params = {"technical_criteria": technical_criteria}
-                if market_cap:
-                    params["market_cap"] = market_cap
-
+            for sectors in sectors_options:
+                params = {"rsi_min": 30, "rsi_max": 70, "price_vs_sma50": "above"}
+                if sectors:
+                    params["sectors"] = sectors
                 result = await server.call_tool("technical_analysis_screener", params)
                 assert result is not None
 
@@ -520,44 +477,35 @@ class TestParameterCombinations:
 
     @pytest.mark.asyncio
     async def test_upcoming_earnings_combinations(self):
-        """Test upcoming earnings screener with various time ranges and criteria."""
-        
-        time_ranges = ["next_week", "next_month", "next_quarter"]
-        market_caps = ["large", "mid", "small"]
-        expected_moves = [
-            {"min_percentage": 3.0},
-            {"min_percentage": 5.0},
-            {"min_percentage": 8.0, "max_percentage": 20.0},
-        ]
+        """Test upcoming earnings screener with various time ranges and criteria.
 
-        sectors_combinations = [
+        Aligned to the actual signature
+        (``earnings_period``/``market_cap``/``min_price``/``min_avg_volume``/
+        ``target_sectors``/``pre_earnings_analysis``/...). The legacy
+        ``time_range``/``expected_move``/``sectors`` keys were silently
+        dropped by FastMCP and never reached the screener.
+        """
+        earnings_periods = ["next_week", "this_week", "tomorrow"]
+        market_caps = ["smallover", "midover", "largeover"]
+        target_sector_groups = [
             None,
             ["Technology"],
             ["Technology", "Healthcare"],
-            ["Finance", "Energy", "Utilities"],
+            ["Energy", "Utilities", "Financial"],
         ]
 
         with patch.object(FinvizScreener, "upcoming_earnings_screener") as mock_screener:
             mock_screener.return_value = self.mock_stock_results
 
-            for time_range, market_cap, expected_move in product(
-                time_ranges, market_caps, expected_moves
-            ):
-                params = {
-                    "time_range": time_range,
-                    "market_cap": market_cap,
-                    "expected_move": expected_move
-                }
-
+            for period, market_cap in product(earnings_periods, market_caps):
+                params = {"earnings_period": period, "market_cap": market_cap}
                 result = await server.call_tool("upcoming_earnings_screener", params)
                 assert result is not None
 
-            # Test with sector combinations
-            for time_range, sectors in product(time_ranges, sectors_combinations):
-                params = {"time_range": time_range}
+            for period, sectors in product(earnings_periods, target_sector_groups):
+                params = {"earnings_period": period}
                 if sectors:
-                    params["sectors"] = sectors
-
+                    params["target_sectors"] = sectors
                 result = await server.call_tool("upcoming_earnings_screener", params)
                 assert result is not None
 
@@ -593,69 +541,77 @@ class TestEdgeCaseParameterCombinations:
 
     @pytest.mark.asyncio
     async def test_extreme_volume_combinations(self):
-        """Test extreme volume parameter combinations."""
-        
-        volume_combinations = [
-            {"min_volume": 1},  # Minimum volume
-            {"min_volume": 1000},  # Low volume
-            {"min_volume": 100000000},  # Very high volume
-            {"min_relative_volume": 0.1},  # Low relative volume
-            {"min_relative_volume": 10.0},  # High relative volume
-        ]
+        """Test extreme volume parameter combinations.
 
-        with patch.object(FinvizScreener, "volume_surge_screener") as mock_screener:
-            mock_screener.return_value = self.empty_results
+        ``min_volume`` and ``min_relative_volume`` are not arguments of the
+        fixed-criteria ``volume_surge_screener``; they belong to
+        ``earnings_screener`` (``min_volume``) and ``get_relative_volume_stocks``
+        (``min_relative_volume``). Routed accordingly.
+        """
+        min_volume_cases = [1, 1000, 100_000_000]
+        min_rel_volume_cases = [0.1, 10.0]
 
-            for vol_combo in volume_combinations:
-                params = {"market_cap": "large", **vol_combo}
-                
-                result = await server.call_tool("volume_surge_screener", params)
+        with patch.object(FinvizScreener, "earnings_screener") as mock_earnings:
+            mock_earnings.return_value = self.empty_results
+
+            for min_vol in min_volume_cases:
+                params = {"earnings_date": "today_after", "min_volume": min_vol}
+                result = await server.call_tool("earnings_screener", params)
+                assert result is not None
+
+        # ``get_relative_volume_stocks`` calls ``screen_stocks`` internally
+        # (src/server.py:1830), so patch that. Patching the same-name
+        # screener method does not intercept and would let live calls
+        # through.
+        with patch.object(FinvizScreener, "screen_stocks") as mock_screen:
+            mock_screen.return_value = []
+
+            for min_rel in min_rel_volume_cases:
+                result = await server.call_tool(
+                    "get_relative_volume_stocks", {"min_relative_volume": min_rel}
+                )
                 assert result is not None
 
     @pytest.mark.asyncio
     async def test_extreme_technical_combinations(self):
-        """Test extreme technical indicator combinations."""
-        
-        extreme_technical_combinations = [
-            {
-                "technical_criteria": {
-                    "rsi_range": {"min": 0, "max": 10},  # Extremely oversold
-                    "sma_position": "below_sma200",
-                    "volume_criteria": {"min_relative_volume": 5.0}
-                }
-            },
-            {
-                "technical_criteria": {
-                    "rsi_range": {"min": 90, "max": 100},  # Extremely overbought
-                    "sma_position": "above_sma20",
-                    "volume_criteria": {"min_relative_volume": 0.5}
-                }
-            },
-            {
-                "technical_criteria": {
-                    "rsi_range": {"min": 45, "max": 55},  # Neutral RSI
-                    "sma_position": "above_sma50",
-                    "volume_criteria": {"min_relative_volume": 1.0}
-                }
-            },
+        """Test extreme technical indicator combinations.
+
+        ``technical_analysis_screener`` calls ``screen_stocks`` internally
+        (src/server.py:1937); patch that. Args are flat per the current
+        signature.
+        """
+        extreme_combinations = [
+            {"rsi_min": 0, "rsi_max": 10, "price_vs_sma200": "below"},     # Oversold
+            {"rsi_min": 90, "rsi_max": 100, "price_vs_sma20": "above"},    # Overbought
+            {"rsi_min": 45, "rsi_max": 55, "price_vs_sma50": "above"},     # Neutral
         ]
 
-        with patch.object(FinvizScreener, "technical_analysis_screener") as mock_screener:
-            mock_screener.return_value = self.empty_results
+        with patch.object(FinvizScreener, "screen_stocks") as mock_screen:
+            mock_screen.return_value = []
 
-            for params in extreme_technical_combinations:
+            for params in extreme_combinations:
                 result = await server.call_tool("technical_analysis_screener", params)
                 assert result is not None
 
     @pytest.mark.asyncio
     async def test_large_ticker_list_combinations(self):
-        """Test performance with large ticker lists."""
-        
+        """Test performance with large ticker lists.
+
+        ``validate_ticker`` accepts ``^[A-Z]{1,5}$``, so we generate 1- to 5-
+        letter alphabetic tickers (base-26) instead of the legacy
+        ``TICK000`` shape that the validator now rejects.
+        """
+
+        def make_ticker(i: int) -> str:
+            # Two-letter alphabetic ticker: AA, AB, ..., DV (covers 0-99).
+            high, low = divmod(i, 26)
+            return f"{chr(ord('A') + high)}{chr(ord('A') + low)}"
+
         # Create progressively larger ticker lists
         ticker_lists = [
-            [f"TICK{i:03d}" for i in range(10)],   # 10 tickers
-            [f"TICK{i:03d}" for i in range(50)],   # 50 tickers
-            [f"TICK{i:03d}" for i in range(100)],  # 100 tickers
+            [make_ticker(i) for i in range(10)],   # 10 tickers
+            [make_ticker(i) for i in range(50)],   # 50 tickers
+            [make_ticker(i) for i in range(100)],  # 100 tickers
         ]
 
         data_field_combinations = [
@@ -677,44 +633,51 @@ class TestEdgeCaseParameterCombinations:
 
     @pytest.mark.asyncio
     async def test_sector_combinations_exhaustive(self):
-        """Test all possible sector combinations."""
-        
+        """Test sector combinations against valid sector names.
+
+        Sector names match ``validate_sector`` (Finviz canonical labels);
+        ``"Finance"``/``"Consumer Goods"``/``"Industrial"`` are NOT valid
+        and have been replaced with ``"Financial"``/``"Consumer Cyclical"``/
+        ``"Consumer Defensive"``/``"Industrials"`` accordingly.
+
+        All loops run inside a single ``patch.object`` context so the test
+        cannot leak into the live Finviz API (the previous version's pair
+        and full-list loops were outside the patch).
+        """
         available_sectors = [
-            "Technology", "Healthcare", "Finance", "Energy", "Utilities",
-            "Consumer Goods", "Industrial", "Basic Materials", "Real Estate"
+            "Technology", "Healthcare", "Financial", "Energy", "Utilities",
+            "Consumer Cyclical", "Consumer Defensive", "Industrials",
+            "Basic Materials", "Real Estate",
         ]
 
-        # Test single sectors
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.return_value = self.empty_results
 
+            # Single-sector cases
             for sector in available_sectors:
                 params = {
                     "earnings_date": "today_after",
-                    "sectors": [sector]
+                    "sectors": [sector],
                 }
-                
                 result = await server.call_tool("earnings_screener", params)
                 assert result is not None
 
-        # Test sector combinations (2-3 sectors)
-        for sector_combo in combinations(available_sectors, 2):
+            # Pair combinations
+            for sector_combo in combinations(available_sectors, 2):
+                params = {
+                    "earnings_date": "today_after",
+                    "sectors": list(sector_combo),
+                }
+                result = await server.call_tool("earnings_screener", params)
+                assert result is not None
+
+            # All sectors at once
             params = {
                 "earnings_date": "today_after",
-                "sectors": list(sector_combo)
+                "sectors": available_sectors,
             }
-            
             result = await server.call_tool("earnings_screener", params)
             assert result is not None
-
-        # Test all sectors
-        params = {
-            "earnings_date": "today_after",
-            "sectors": available_sectors
-        }
-        
-        result = await server.call_tool("earnings_screener", params)
-        assert result is not None
 
 
 if __name__ == "__main__":
