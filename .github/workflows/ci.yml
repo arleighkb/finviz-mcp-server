@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same PR/branch when new commits are pushed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (black / flake8 / isort, informational)
+    runs-on: ubuntu-latest
+    # Lint is informational because the existing codebase has not yet
+    # been normalized to black / flake8 / isort (at adoption time:
+    # ~48 files need black reformatting, 2625 flake8 violations).
+    # Surfaces issues per-PR without blocking merges. Promote to a
+    # required check after a one-shot codebase-format PR lands.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install lint tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install "black>=24.0.0" "flake8>=7.0.0" "isort>=5.13.0"
+
+      - name: Run black (check only)
+        run: black --check --line-length=88 src/ tests/
+
+      - name: Run isort (check only)
+        run: isort --check-only --profile=black --line-length=88 src/ tests/
+
+      - name: Run flake8
+        run: flake8 src/ tests/
+
+  typecheck:
+    name: Type check (mypy, informational)
+    runs-on: ubuntu-latest
+    # mypy is informational because pyproject.toml uses strict settings that
+    # are not yet fully satisfied by the codebase. Failures are surfaced but
+    # do not block merging.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run mypy
+        run: mypy src/
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # Explicit list of test files known to be CI-safe (no live API,
+      # no MCP server round-trips, no network). Other test files in
+      # tests/ either need FINVIZ_API_KEY, hit external endpoints, or
+      # have not yet been validated as fully offline (see Deferred Risk
+      # R2 in reviews/REVIEW_TRACKING.md — marker separation pending).
+      # Run those locally with `python3 run_release_tests.py` or
+      # `pytest --run-e2e`.
+      - name: Run offline regression tests
+        run: |
+          pytest -v \
+            tests/test_basic.py \
+            tests/test_screener_url_generation.py \
+            tests/test_relative_volume_stocks.py \
+            tests/test_52w_high_low_parsing.py \
+            tests/test_sma_field_parsing.py \
+            tests/test_sma_50_200_invariant.py \
+            tests/test_parser_unit_contracts.py
+        env:
+          PYTHONPATH: ${{ github.workspace }}
