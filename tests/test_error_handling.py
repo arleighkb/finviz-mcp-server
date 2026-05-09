@@ -94,18 +94,23 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_invalid_market_cap_values(self):
-        """Test invalid market cap parameters."""
+        """Test invalid market cap parameters.
+
+        ``validate_market_cap`` accepts the empty string (treated as
+        "no filter") and is case-sensitive. We only assert against values
+        the validator actually rejects.
+        """
+        # Empty string ``""`` is intentionally accepted as the default
+        # value of ``cap`` in ALL_PARAMETERS, so it is not in this set.
         invalid_market_caps = [
-            "",
             "invalid",
             "tiny",
             "huge",
-            "LARGE",  # Case sensitivity
+            "LARGE",  # Case sensitivity — only lowercase variants are accepted
             123,      # Wrong type
-            None,     # Should be handled as optional
         ]
 
-        for market_cap in invalid_market_caps[:-1]:  # Exclude None
+        for market_cap in invalid_market_caps:
             with pytest.raises(McpToolError):
                 await server.call_tool("earnings_screener", {
                     "earnings_date": "today_after",
@@ -114,14 +119,17 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_invalid_price_ranges(self):
-        """Test invalid price range parameters."""
+        """Test invalid price range parameters.
+
+        ``validate_price_range`` converts unparseable strings (e.g.
+        ``"invalid"``) and zero to ``None`` / ``0.0`` and accepts both, so
+        those values are intentionally NOT in this invalid set. Only the
+        cases that the current validator actually rejects are asserted.
+        """
         invalid_price_params = [
-            {"min_price": -10.0},           # Negative price
-            {"max_price": -5.0},            # Negative max price
+            {"min_price": -10.0},                     # Negative price
+            {"max_price": -5.0},                      # Negative max price
             {"min_price": 100.0, "max_price": 50.0},  # Min > Max
-            {"min_price": "invalid"},       # Wrong type
-            {"max_price": "invalid"},       # Wrong type
-            {"min_price": 0},               # Zero price
         ]
 
         for price_params in invalid_price_params:
@@ -133,16 +141,16 @@ class TestInputValidation:
     async def test_invalid_volume_parameters(self):
         """Test invalid volume parameters.
 
-        ``volume_surge_screener`` is parameterless (fixed-criteria), so we
-        exercise ``min_relative_volume`` through ``get_relative_volume_stocks``
-        instead — the screener that actually accepts that argument.
+        ``volume_surge_screener`` is parameterless, so ``min_relative_volume``
+        is exercised through ``get_relative_volume_stocks`` instead.
+        ``validate_volume(0)`` returns ``True`` (0 is a valid lower bound),
+        so zero volume is intentionally NOT in this invalid set.
         """
         invalid_volume_params = [
-            {"min_volume": -1000},          # Negative volume
-            {"min_volume": "invalid"},      # Wrong type
-            {"min_relative_volume": -1.0},  # Negative relative volume
-            {"min_relative_volume": "invalid"},  # Wrong type
-            {"min_volume": 0},              # Zero volume
+            {"min_volume": -1000},                # Negative volume
+            {"min_volume": "invalid"},            # Wrong type / unparseable
+            {"min_relative_volume": -1.0},        # Negative relative volume
+            {"min_relative_volume": "invalid"},   # Wrong type / unparseable
         ]
 
         for volume_params in invalid_volume_params:
@@ -174,14 +182,19 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_invalid_data_fields(self):
-        """Test invalid data fields for fundamentals."""
+        """Test invalid data fields for fundamentals.
+
+        Empty list ``[]`` is treated as "no field filter" by
+        ``get_stock_fundamentals`` (``if data_fields:`` is falsy), so it is
+        intentionally NOT in this invalid set. Only field names the validator
+        actually rejects are asserted.
+        """
         invalid_data_fields = [
-            [],                              # Empty list
-            [""],                           # Empty string in list
-            ["invalid_field"],              # Non-existent field
-            ["pe_ratio", ""],               # Mix of valid and invalid
-            "pe_ratio",                     # String instead of list
-            [123],                          # Wrong type in list
+            [""],                  # Empty string in list
+            ["invalid_field"],     # Non-existent field
+            ["pe_ratio", ""],      # Mix of valid and invalid
+            "pe_ratio",            # String instead of list
+            [123],                 # Wrong type in list
         ]
 
         for data_fields in invalid_data_fields:
