@@ -413,10 +413,16 @@ class TestUptrendScreenerInvariants:
         # StockData.above_sma_*/sma_* from the relative-% SMA columns
         # (issue #18 / PR #21).
         # NOT locally verifiable:
-        #   - ta_highlow52w_a30h: FinViz "52-Week High" CSV column is a
-        #     relative percent (not a price). The semantic of `a30h`
-        #     against that percent has not been pinned down with
-        #     observed data, so leave it disabled.
+        #   - ta_highlow52w_a30h: parser now correctly populates
+        #     ``high_52w_relative`` (issue #17 / PR #22), but Finviz's
+        #     own ``a30h`` filter token does NOT mean strictly "within
+        #     30% of 52w high". Empirically, a live uptrend run
+        #     returned ~17 of 725 stocks beyond -30% (worst case
+        #     -65%). The semantic likely refers to a different anchor
+        #     (e.g. "above 30% of 52w low" range), so checking
+        #     ``high_52w_relative >= -30`` would produce false
+        #     positives. Leave disabled until the token semantic is
+        #     confirmed against Finviz docs.
         assert_invariants(
             "uptrend_screener",
             results,
@@ -520,11 +526,13 @@ class TestEarningsTradingScreenerInvariants:
                     optional=True,
                 ),
                 # fa_epsrev_ep (positive EPS revision) is NOT locally
-                # verifiable because the FinViz CSV view returned for
-                # this screener does not include the "EPS Revision"
-                # column, so ``StockData.eps_revision`` is None for
-                # every row (verified: 0/14 verified across a live
-                # run). Filter token is in the URL.
+                # verifiable: Finviz Elite's CSV export does not expose
+                # an "EPS Revision" column under any view (v=151 and
+                # v=152 both return 151 columns with no Revision
+                # entry). The filter token applies server-side, but
+                # we cannot re-check it from StockData. See issue #19
+                # and the parser-level regression in
+                # tests/test_parser_unit_contracts.py.
                 # ta_change_u: today's change > 0
                 Invariant(
                     name="price_change > 0",

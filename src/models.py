@@ -181,6 +181,12 @@ class StockData:
     revenue_actual: Optional[float] = None
     eps_qoq_growth: Optional[float] = None
     sales_qoq_growth: Optional[float] = None
+    # NOTE: eps_revision and revenue_revision are NOT populated by the
+    # Finviz Elite screener CSV API — neither v=151 nor v=152 expose an
+    # "EPS Revision" or "Revenue Revision" column, even though the
+    # filter tokens (fa_epsrev_ep, fa_epsrev_eo<X>) are accepted
+    # server-side. These fields therefore stay None for any
+    # screener-derived StockData. See issue #19.
     eps_revision: Optional[float] = None
     revenue_revision: Optional[float] = None
     

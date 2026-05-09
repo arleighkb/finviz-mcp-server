@@ -155,3 +155,55 @@ class TestParserBasics:
         row = _row(**{"Relative Volume": 1.75})
         stock = parser._parse_stock_data_from_csv(row)
         assert stock.relative_volume == pytest.approx(1.75)
+
+
+# ---------------------------------------------------------------------------
+# Issue #19 — eps_revision is unfetchable via Finviz Elite CSV export
+# ---------------------------------------------------------------------------
+
+
+class TestEpsRevisionUnfetchable:
+    """Regression tests that pin issue #19 in both directions.
+
+    The Finviz Elite CSV export does not expose ``EPS Revision`` under
+    any known view (v=151, v=152 both verified). The mapping in
+    ``base.py`` is kept as a no-op so the day Finviz adds the column,
+    the parser will pick it up automatically. These tests:
+
+    1. ``test_eps_revision_none_when_column_absent`` — pins the
+       current behavior. A CSV row WITHOUT an "EPS Revision" column
+       must produce ``StockData.eps_revision is None``. If somebody
+       silently changes the parser to default to 0 or skip the field,
+       this test catches it.
+    2. ``test_eps_revision_picked_up_when_column_present`` — pins the
+       *forward path*. The day Finviz adds an "EPS Revision" column
+       to its CSV view (or we switch to a view that already has it),
+       the existing mapping in base.py must populate the field. This
+       test demonstrates that the wiring is intact.
+    """
+
+    def test_eps_revision_none_when_column_absent(self, parser):
+        # _row() does NOT include "EPS Revision" — matches today's
+        # production CSV behavior under v=151 / v=152.
+        row = _row()
+        assert "EPS Revision" not in row.index, (
+            "Test fixture invariant: _row() should not include "
+            "'EPS Revision' so we can pin the production-CSV behavior."
+        )
+        stock = parser._parse_stock_data_from_csv(row)
+        assert stock.eps_revision is None, (
+            "When the CSV row has no 'EPS Revision' column, "
+            "StockData.eps_revision must be None (issue #19)."
+        )
+
+    def test_eps_revision_picked_up_when_column_present(self, parser):
+        # If Finviz ever adds the column, the existing field mapping
+        # at src/finviz_client/base.py:1284 should populate it without
+        # any further code change.
+        row = _row(**{"EPS Revision": 12.5})
+        stock = parser._parse_stock_data_from_csv(row)
+        assert stock.eps_revision == pytest.approx(12.5), (
+            "When the CSV row includes 'EPS Revision', the existing "
+            "field mapping must pick it up. If this regresses, the "
+            "mapping in base.py needs investigation."
+        )
