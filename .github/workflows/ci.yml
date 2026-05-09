@@ -93,22 +93,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      # Explicit list of test files known to be CI-safe (no live API,
-      # no MCP server round-trips, no network). Other test files in
-      # tests/ either need FINVIZ_API_KEY, hit external endpoints, or
-      # have not yet been validated as fully offline (see Deferred Risk
-      # R2 in reviews/REVIEW_TRACKING.md — marker separation pending).
-      # Run those locally with `python3 run_release_tests.py` or
-      # `pytest --run-e2e`.
-      - name: Run offline regression tests
-        run: |
-          pytest -v \
-            tests/test_basic.py \
-            tests/test_screener_url_generation.py \
-            tests/test_relative_volume_stocks.py \
-            tests/test_52w_high_low_parsing.py \
-            tests/test_sma_field_parsing.py \
-            tests/test_sma_50_200_invariant.py \
-            tests/test_parser_unit_contracts.py
+      # Run the full offline test suite. Live / e2e tests are auto-marked
+      # via tests/conftest.py (LIVE_TEST_FILENAME_PATTERNS) and excluded
+      # by ``-m "not e2e"``. Pass ``--run-e2e`` locally to include them.
+      # Resolves Deferred Risk R2 (marker separation) in
+      # reviews/REVIEW_TRACKING.md.
+      #
+      # ``test_edgar_api.py`` is ignored at collection time because
+      # ``sec_edgar_api`` fails to import on CI (pyrate-limiter 3.x API
+      # mismatch — Limiter() no longer accepts ``raise_when_fail``). The
+      # tests themselves are e2e-only and would be deselected by
+      # ``-m "not e2e"`` anyway, but pytest still imports the module
+      # during collection. Until EDGAR is re-enabled in PR E, skip
+      # collection.
+      - name: Run offline test suite
+        run: pytest -m "not e2e" -q --ignore=tests/test_edgar_api.py
         env:
           PYTHONPATH: ${{ github.workspace }}
