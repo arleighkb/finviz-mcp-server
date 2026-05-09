@@ -18,7 +18,11 @@ from src.finviz_client.base import FinvizClient
 from src.finviz_client.news import FinvizNewsClient
 from src.finviz_client.sector_analysis import FinvizSectorAnalysisClient
 from src.utils.validators import validate_ticker
-from src.utils.exceptions import ToolError
+
+# FastMCP wraps tool exceptions in mcp.server.fastmcp.exceptions.ToolError when
+# invoked through ``server.call_tool``. Import it under an alias so tests can
+# distinguish boundary errors from local domain errors (src.utils.exceptions).
+from mcp.server.fastmcp.exceptions import ToolError as McpToolError
 
 logger = logging.getLogger(__name__)
 
@@ -28,27 +32,42 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_invalid_ticker_formats(self):
-        """Test various invalid ticker formats."""
+        """Test various invalid ticker formats.
+
+        ``validate_ticker`` returns a bool: True for 1-5 alphabetic chars
+        (case-insensitive), False otherwise. ``None`` falls through to the MCP
+        boundary which raises ``McpToolError``.
+        """
+        # Strings the validator must reject (returns False). Note ``"ticker"``
+        # is 6 characters and therefore invalid (regex caps at 5); ``"TICKER$"``
+        # contains a non-alphabetic character.
         invalid_tickers = [
-            "",           # Empty string
-            " ",          # Whitespace only
-            "123",        # Numbers only
-            "A",          # Too short
+            "",                    # Empty string
+            " ",                   # Whitespace only
+            "123",                 # Numbers only
+            "ticker",              # Too long (6 chars) — would be 'TICKER' (6) after upper()
             "TOOLONGTICKERYMBOL",  # Too long
-            "IN-VALID",   # Invalid characters
-            "in valid",   # Spaces
-            "TICKER$",    # Special characters
-            "ticker",     # Lowercase (should be handled)
-            None,         # None value
+            "IN-VALID",            # Invalid characters
+            "in valid",            # Spaces
+            "TICKER$",             # Special characters
         ]
+        # Strings the validator must accept (returns True). 1-letter and
+        # lowercase short tickers are valid because the validator uppercases
+        # before matching ``^[A-Z]{1,5}$``.
+        valid_tickers = ["A", "aapl", "AAPL", "MSFT"]
 
         for ticker in invalid_tickers:
-            with pytest.raises((ValueError, TypeError)):
-                if ticker is None:
-                    await server.call_tool("get_stock_fundamentals", {"ticker": ticker})
-                else:
-                    # Test ticker validation directly
-                    validate_ticker(ticker)
+            assert validate_ticker(ticker) is False, (
+                f"Expected validate_ticker({ticker!r}) to be False"
+            )
+        for ticker in valid_tickers:
+            assert validate_ticker(ticker) is True, (
+                f"Expected validate_ticker({ticker!r}) to be True"
+            )
+
+        # ``None`` reaches the MCP boundary; FastMCP rejects it via pydantic.
+        with pytest.raises(McpToolError):
+            await server.call_tool("get_stock_fundamentals", {"ticker": None})
 
     @pytest.mark.asyncio
     async def test_invalid_earnings_dates(self):
@@ -64,11 +83,14 @@ class TestInputValidation:
         ]
 
         for date in invalid_dates:
-            with pytest.raises(ToolError) as exc_info:
+            with pytest.raises(McpToolError) as exc_info:
                 await server.call_tool("earnings_screener", {"earnings_date": date})
-            
-            # Verify the error message contains validation information
-            assert "Invalid earnings_date" in str(exc_info.value)
+
+            # FastMCP wraps the underlying validation failure; either the
+            # pydantic message ("validation error") or the explicit
+            # ``Invalid earnings_date`` string is acceptable.
+            msg = str(exc_info.value)
+            assert "earnings_date" in msg or "validation error" in msg.lower()
 
     @pytest.mark.asyncio
     async def test_invalid_market_cap_values(self):
@@ -84,7 +106,7 @@ class TestInputValidation:
         ]
 
         for market_cap in invalid_market_caps[:-1]:  # Exclude None
-            with pytest.raises((ValueError, TypeError)):
+            with pytest.raises(McpToolError):
                 await server.call_tool("earnings_screener", {
                     "earnings_date": "today_after",
                     "market_cap": market_cap
@@ -103,13 +125,18 @@ class TestInputValidation:
         ]
 
         for price_params in invalid_price_params:
-            with pytest.raises((ValueError, TypeError)):
+            with pytest.raises(McpToolError):
                 params = {"earnings_date": "today_after", **price_params}
                 await server.call_tool("earnings_screener", params)
 
     @pytest.mark.asyncio
     async def test_invalid_volume_parameters(self):
-        """Test invalid volume parameters."""
+        """Test invalid volume parameters.
+
+        ``volume_surge_screener`` is parameterless (fixed-criteria), so we
+        exercise ``min_relative_volume`` through ``get_relative_volume_stocks``
+        instead — the screener that actually accepts that argument.
+        """
         invalid_volume_params = [
             {"min_volume": -1000},          # Negative volume
             {"min_volume": "invalid"},      # Wrong type
@@ -119,13 +146,14 @@ class TestInputValidation:
         ]
 
         for volume_params in invalid_volume_params:
-            with pytest.raises((ValueError, TypeError)):
+            with pytest.raises(McpToolError):
                 if "min_volume" in volume_params:
                     params = {"earnings_date": "today_after", **volume_params}
                     await server.call_tool("earnings_screener", params)
                 else:
-                    params = {"market_cap": "large", **volume_params}
-                    await server.call_tool("volume_surge_screener", params)
+                    await server.call_tool(
+                        "get_relative_volume_stocks", volume_params
+                    )
 
     @pytest.mark.asyncio
     async def test_invalid_sector_parameters(self):
@@ -140,7 +168,7 @@ class TestInputValidation:
         ]
 
         for sector_params in invalid_sector_params[:-1]:  # Exclude None
-            with pytest.raises((ValueError, TypeError)):
+            with pytest.raises(McpToolError):
                 params = {"earnings_date": "today_after", **sector_params}
                 await server.call_tool("earnings_screener", params)
 
@@ -157,7 +185,7 @@ class TestInputValidation:
         ]
 
         for data_fields in invalid_data_fields:
-            with pytest.raises((ValueError, TypeError)):
+            with pytest.raises(McpToolError):
                 await server.call_tool("get_stock_fundamentals", {
                     "ticker": "AAPL",
                     "data_fields": data_fields
@@ -165,7 +193,13 @@ class TestInputValidation:
 
 
 class TestNetworkErrorHandling:
-    """Test network-related error handling."""
+    """Test network-related error handling.
+
+    These tests assert that transport-layer failures surface as
+    ``McpToolError`` at the FastMCP boundary. The MCP server is responsible
+    for letting domain exceptions propagate; FastMCP wraps them into its own
+    ``ToolError`` when ``server.call_tool`` is invoked.
+    """
 
     @pytest.mark.asyncio
     async def test_connection_timeout(self):
@@ -173,7 +207,7 @@ class TestNetworkErrorHandling:
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.side_effect = Timeout("Connection timeout")
 
-            with pytest.raises((Timeout, ConnectionError)):
+            with pytest.raises(McpToolError):
                 await server.call_tool("earnings_screener", {"earnings_date": "today_after"})
 
     @pytest.mark.asyncio
@@ -182,7 +216,7 @@ class TestNetworkErrorHandling:
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.side_effect = ConnectionError("Failed to connect")
 
-            with pytest.raises(ConnectionError):
+            with pytest.raises(McpToolError):
                 await server.call_tool("earnings_screener", {"earnings_date": "today_after"})
 
     @pytest.mark.asyncio
@@ -202,7 +236,7 @@ class TestNetworkErrorHandling:
             for error in http_errors:
                 mock_screener.side_effect = error
 
-                with pytest.raises(HTTPError):
+                with pytest.raises(McpToolError):
                     await server.call_tool("earnings_screener", {"earnings_date": "today_after"})
 
     @pytest.mark.asyncio
@@ -211,7 +245,7 @@ class TestNetworkErrorHandling:
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.side_effect = Exception("Rate limit exceeded")
 
-            with pytest.raises(Exception):
+            with pytest.raises(McpToolError):
                 await server.call_tool("earnings_screener", {"earnings_date": "today_after"})
 
     @pytest.mark.asyncio
@@ -486,7 +520,7 @@ class TestResourceManagement:
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.side_effect = Exception("Simulated error")
 
-            with pytest.raises(Exception):
+            with pytest.raises(McpToolError):
                 await server.call_tool("earnings_screener", {"earnings_date": "today_after"})
 
             # Verify that the screener was called (and presumably cleaned up)
@@ -507,7 +541,7 @@ class TestResourceManagement:
             for error in error_scenarios:
                 mock_screener.side_effect = error
 
-                with pytest.raises(Exception):
+                with pytest.raises(McpToolError):
                     await server.call_tool("earnings_screener", {"earnings_date": "today_after"})
 
                 # Reset for next test

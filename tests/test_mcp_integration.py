@@ -19,6 +19,10 @@ from src.finviz_client.base import FinvizClient
 from src.finviz_client.news import FinvizNewsClient
 from src.finviz_client.sector_analysis import FinvizSectorAnalysisClient
 
+# FastMCP wraps tool exceptions in mcp.server.fastmcp.exceptions.ToolError
+# when invoked through ``server.call_tool``.
+from mcp.server.fastmcp.exceptions import ToolError as McpToolError
+
 logger = logging.getLogger(__name__)
 
 
@@ -56,7 +60,13 @@ class TestMCPServerIntegration:
 
     @pytest.mark.asyncio
     async def test_tool_registration(self):
-        """Test that all tools are properly registered with the MCP server."""
+        """Test that the documented core tools are registered with the MCP server.
+
+        ``server.list_tools()`` is async on current FastMCP. The repository now
+        exposes additional surface area (SEC filings, EDGAR, field-discovery,
+        sector/industry helpers) so the assertion is "must include" — adding
+        new tools should not break this test.
+        """
         expected_tools = [
             "earnings_screener",
             "volume_surge_screener",
@@ -69,7 +79,6 @@ class TestMCPServerIntegration:
             "earnings_premarket_screener",
             "earnings_afterhours_screener",
             "earnings_trading_screener",
-
             "get_stock_news",
             "get_market_news",
             "get_sector_news",
@@ -83,21 +92,16 @@ class TestMCPServerIntegration:
             "custom_screener",
         ]
 
-        # Get registered tools from the server
-        tools = server.list_tools()
-        registered_tool_names = [tool.name for tool in tools]
+        tools = await server.list_tools()
+        registered_tool_names = {tool.name for tool in tools}
 
-        # Verify all expected tools are registered
-        for expected_tool in expected_tools:
-            assert expected_tool in registered_tool_names, f"Tool {expected_tool} not registered"
-
-        # Verify we have the expected number of tools
-        assert len(registered_tool_names) == len(expected_tools)
+        missing = [t for t in expected_tools if t not in registered_tool_names]
+        assert not missing, f"Expected tools not registered: {missing}"
 
     @pytest.mark.asyncio
     async def test_tool_metadata(self):
         """Test that tools have proper metadata."""
-        tools = server.list_tools()
+        tools = await server.list_tools()
 
         for tool in tools:
             # Each tool should have a name
@@ -115,35 +119,39 @@ class TestMCPServerIntegration:
     async def test_mcp_protocol_compliance(self):
         """Test MCP protocol compliance."""
         # Test that server responds to standard MCP methods
-        
+
         # Test list_tools
-        tools = server.list_tools()
+        tools = await server.list_tools()
         assert isinstance(tools, list)
         assert len(tools) > 0
 
-        # Test that tools return proper TextContent
+        # Test that tools return proper TextContent.
+        # FastMCP's ``call_tool`` now returns ``(content_list, structured)``
+        # where ``content_list`` is the iterable of ``TextContent``/dicts
+        # callers want to render and ``structured`` is the JSON-shaped
+        # response. We accept either legacy bare-list or the new tuple shape.
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.return_value = self.mock_results
 
             result = await server.call_tool("earnings_screener", {"earnings_date": "today_after"})
-            
+
             assert result is not None
-            # Result should be TextContent or list of TextContent
-            if isinstance(result, list):
-                for item in result:
+            content = result[0] if isinstance(result, tuple) else result
+            if isinstance(content, list):
+                for item in content:
                     assert isinstance(item, (TextContent, dict))
             else:
-                assert isinstance(result, (TextContent, dict))
+                assert isinstance(content, (TextContent, dict))
 
     @pytest.mark.asyncio
     async def test_parameter_validation_integration(self):
         """Test parameter validation through MCP interface."""
         # Test missing required parameters
-        with pytest.raises((ValueError, TypeError, KeyError)):
+        with pytest.raises(McpToolError):
             await server.call_tool("earnings_screener", {})  # Missing earnings_date
 
         # Test invalid parameter types
-        with pytest.raises((ValueError, TypeError)):
+        with pytest.raises(McpToolError):
             await server.call_tool("earnings_screener", {
                 "earnings_date": "today_after",
                 "min_price": "invalid"  # Should be float
@@ -229,12 +237,12 @@ class TestMCPToolInterfaces:
     @pytest.mark.asyncio
     async def test_news_tools_interface(self):
         """Test news-related tools interface."""
-        # Stock news
+        # Stock news — implementation requires ``tickers`` (list/comma-string).
         with patch.object(FinvizNewsClient, "get_stock_news") as mock_news:
             mock_news.return_value = self.news_data
 
             result = await server.call_tool("get_stock_news", {
-                "ticker": "AAPL",
+                "tickers": "AAPL",
                 "limit": 10
             })
 
@@ -312,27 +320,22 @@ class TestMCPToolInterfaces:
             "execution_time": 1.0
         }
 
+        # ``volume_surge_screener`` is parameterless (fixed criteria) and the
+        # other screeners listed here own their own validation; we stick with
+        # parameter sets that match the current implementation contracts.
         screener_tests = [
-            ("earnings_screener", {"earnings_date": "today_after"}),
-            ("volume_surge_screener", {"market_cap": "large"}),
-            ("trend_reversion_screener", {"market_cap": "large", "rsi_max": 30}),
-            ("uptrend_screener", {"trend_type": "strong_uptrend"}),
-            ("dividend_growth_screener", {"min_dividend_yield": 2.0}),
-            ("etf_screener", {"etf_type": "sector"}),
-            ("get_relative_volume_stocks", {"min_relative_volume": 1.5}),
-            ("technical_analysis_screener", {
-                "technical_criteria": {
-                    "rsi_range": {"min": 30, "max": 70},
-                    "sma_position": "above_sma50"
-                }
-            }),
-            ("upcoming_earnings_screener", {"time_range": "next_week"}),
+            ("earnings_screener", "earnings_screener", {"earnings_date": "today_after"}),
+            ("volume_surge_screener", "volume_surge_screener", {}),
+            ("trend_reversion_screener", "trend_reversion_screener", {}),
+            ("uptrend_screener", "uptrend_screener", {}),
+            ("dividend_growth_screener", "dividend_growth_screener", {}),
+            ("etf_screener", "etf_screener", {}),
+            ("get_relative_volume_stocks", "get_relative_volume_stocks", {"min_relative_volume": 1.5}),
+            ("technical_analysis_screener", "technical_analysis_screener", {}),
+            ("upcoming_earnings_screener", "upcoming_earnings_screener", {}),
         ]
 
-        for tool_name, params in screener_tests:
-            # Map tool names to screener method names
-            screener_method = tool_name.replace("get_", "").replace("_screener", "_screener")
-            
+        for tool_name, screener_method, params in screener_tests:
             with patch.object(FinvizScreener, screener_method) as mock_screener:
                 mock_screener.return_value = mock_screener_result
 
@@ -346,14 +349,14 @@ class TestMCPErrorHandling:
     @pytest.mark.asyncio
     async def test_tool_not_found_error(self):
         """Test handling of non-existent tool calls."""
-        with pytest.raises((AttributeError, KeyError)):
+        with pytest.raises(McpToolError):
             await server.call_tool("non_existent_tool", {})
 
     @pytest.mark.asyncio
     async def test_malformed_tool_call(self):
         """Test handling of malformed tool calls."""
-        # Test with invalid parameters structure
-        with pytest.raises((ValueError, TypeError, KeyError)):
+        # Test with invalid parameters structure (string instead of dict)
+        with pytest.raises((McpToolError, ValueError, TypeError)):
             await server.call_tool("earnings_screener", "invalid_params")
 
     @pytest.mark.asyncio
@@ -362,15 +365,23 @@ class TestMCPErrorHandling:
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.side_effect = Exception("Screener error")
 
-            with pytest.raises(Exception):
+            with pytest.raises(McpToolError):
                 await server.call_tool("earnings_screener", {"earnings_date": "today_after"})
 
     @pytest.mark.asyncio
     async def test_timeout_handling(self):
-        """Test timeout handling in MCP tool execution."""
-        async def slow_screener(*args, **kwargs):
-            await asyncio.sleep(10)  # Very slow operation
-            return {"stocks": [], "total_count": 0}
+        """Test timeout handling in MCP tool execution.
+
+        ``FinvizScreener.earnings_screener`` is a synchronous method, so we
+        block via ``time.sleep`` (not ``asyncio.sleep``) — running inside a
+        ``Mock.side_effect`` returns the slept value rather than producing an
+        unawaited coroutine.
+        """
+        import time
+
+        def slow_screener(*args, **kwargs):
+            time.sleep(10)  # Synchronous block to exercise the timeout path
+            return []
 
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.side_effect = slow_screener

@@ -384,14 +384,16 @@ class TestParameterCombinations:
             mock_news.return_value = self.mock_news_results
 
             for ticker, limit in product(tickers, limits):
-                params = {"ticker": ticker, "limit": limit}
+                # Implementation requires ``tickers`` (list/comma-string), not
+                # singular ``ticker``.
+                params = {"tickers": ticker, "limit": limit}
 
                 result = await server.call_tool("get_stock_news", params)
                 assert result is not None
 
             # Test with days_back parameter
             for ticker, days_back in product(tickers[:2], days_back_options):
-                params = {"ticker": ticker, "limit": 10}
+                params = {"tickers": ticker, "limit": 10}
                 if days_back:
                     params["days_back"] = days_back
 
@@ -649,13 +651,23 @@ class TestEdgeCaseParameterCombinations:
 
     @pytest.mark.asyncio
     async def test_large_ticker_list_combinations(self):
-        """Test performance with large ticker lists."""
-        
+        """Test performance with large ticker lists.
+
+        ``validate_ticker`` accepts ``^[A-Z]{1,5}$``, so we generate 1- to 5-
+        letter alphabetic tickers (base-26) instead of the legacy
+        ``TICK000`` shape that the validator now rejects.
+        """
+
+        def make_ticker(i: int) -> str:
+            # Two-letter alphabetic ticker: AA, AB, ..., DV (covers 0-99).
+            high, low = divmod(i, 26)
+            return f"{chr(ord('A') + high)}{chr(ord('A') + low)}"
+
         # Create progressively larger ticker lists
         ticker_lists = [
-            [f"TICK{i:03d}" for i in range(10)],   # 10 tickers
-            [f"TICK{i:03d}" for i in range(50)],   # 50 tickers
-            [f"TICK{i:03d}" for i in range(100)],  # 100 tickers
+            [make_ticker(i) for i in range(10)],   # 10 tickers
+            [make_ticker(i) for i in range(50)],   # 50 tickers
+            [make_ticker(i) for i in range(100)],  # 100 tickers
         ]
 
         data_field_combinations = [
