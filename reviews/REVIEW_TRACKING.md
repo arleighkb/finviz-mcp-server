@@ -37,17 +37,22 @@
 | R2 | ネットワーク / API キー前提テストが unit テストと混在 | ⚪ Deferred | `integration` / `requires_network` / `requires_finviz_api_key` の marker 分離が必要。レビュアーが `tests/conftest.py` で auto-mark/auto-skip の試作を提供済み。 |
 | R3 | `src/server.py` が肥大（MCPツール層・validation・formatting・client が密結合） | ⚪ Deferred | ツール毎の formatter / validation の分割をリファクタリング issue として整理。 |
 
-## Quality Infrastructure (Deferred)
+## Quality Infrastructure
 
-レビュアーがローカルに追加した以下のファイルは品質基盤として別 PR で取り込み予定（本トラッキングのスコープ外）:
+| ファイル | 状態 | PR | 備考 |
+|---|---|---|---|
+| `.flake8` | 🟡 In Progress | [#30](https://github.com/tradermonty/finviz-mcp-server/pull/30) | Linter 設定 |
+| `.pre-commit-config.yaml` | 🟡 In Progress | [#30](https://github.com/tradermonty/finviz-mcp-server/pull/30) | pre-commit hooks |
+| `.github/workflows/ci.yml` | 🟡 In Progress | [#30](https://github.com/tradermonty/finviz-mcp-server/pull/30) | GitHub Actions CI（lint/typecheck は informational、test は explicit allowlist） |
+| `tests/conftest.py` | 🟢 Done | [#16](https://github.com/tradermonty/finviz-mcp-server/pull/16) | テスト共通 fixture (e2e auto-marker / auto-skip) |
+| `tests/test_e2e_screener_invariants.py` | 🟢 Done | [#16](https://github.com/tradermonty/finviz-mcp-server/pull/16) | E2E スクリーナー不変式テスト |
+| `scripts/run_e2e_invariants.py` | 🟢 Done | [#16](https://github.com/tradermonty/finviz-mcp-server/pull/16) | E2E 実行スクリプト |
+| `tests/E2E_TESTING.md` | 🟢 Done | [#16](https://github.com/tradermonty/finviz-mcp-server/pull/16) | E2E テスト手順書 |
 
-- `.flake8` — Linter 設定
-- `.github/workflows/ci.yml` — GitHub Actions CI
-- `.pre-commit-config.yaml` — pre-commit hooks
-- `tests/conftest.py` — テスト共通 fixture (e2e auto-marker / auto-skip)
-- `tests/test_e2e_screener_invariants.py` — E2E スクリーナー不変式テスト
-- `scripts/run_e2e_invariants.py` — E2E 実行スクリプト
-- `tests/E2E_TESTING.md` — E2E テスト手順書
+PR #30 のフォローアップ:
+1. **Codebase format PR** — `black src/ tests/` + `isort src/ tests/` 実行 + flake8 違反修正 → lint job を required (`continue-on-error: false`) に昇格。
+2. **Marker separation (Deferred Risk R2)** — `tests/conftest.py` の `LIVE_TEST_FILENAME_PATTERNS` を拡張、または該当ファイルに `pytestmark = [pytest.mark.e2e]` を付与 → CI test job を `pytest tests/` に拡大。
+3. **mypy strictness 調整** → typecheck job を required に昇格。
 
 ## Recommended Merge Order (per repository-prs-review-2026-05-07.md)
 
@@ -69,3 +74,4 @@
 - 2026-05-07: pr-22-23-parser-followups-rereview-2026-05-07.md の P2 finding (sma_50_above_sma_200 field_getter) を反映 → Issue #25 / PR #26 を作成。Finding #13 として追加。
 - 2026-05-07: pr-26-27-sma-pair-rereview-2026-05-07.md で PR #26 / #27 とも Approve。non-blocking で UNVERIFIABLE assertion の厳密化指摘を受けて 4214275 で対応 → PR #26 を main にマージ。Finding #13 を 🟢 Done に更新。
 - 2026-05-08: Issue #19 (`eps_revision` 不在) について、複数 Finviz Elite view (v=151/152/120/130/141/161/170) を probe して "EPS Revision" カラムがどの view にも存在しないことを確定 → Option C (仕様化) を採用した PR #28 を作成・マージ。`models.py` / `base.py` に limitation コメント追加、forward-compat の双方向 parser unit test 2件 (`tests/test_parser_unit_contracts.py::TestEpsRevisionUnfetchable`) で pin。Finding #11 を 🟢 Done に更新。bonus として `ta_highlow52w_a30h` の Finviz semantic 不整合を実データ (17/725 stocks beyond -30%) で確認、E2E コメントを更新。
+- 2026-05-08: Quality Infrastructure (`.flake8` / `.pre-commit-config.yaml` / `.github/workflows/ci.yml`) を PR #30 で取り込み開始。CI は existing codebase の状態を考慮し、lint/typecheck は informational、test は explicit allowlist (今日の offline regression tests 7ファイル / 48 tests) で起動。フォローアップとして codebase format PR、marker separation (R2)、mypy strictness 調整を予定。
