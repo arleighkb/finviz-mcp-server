@@ -1281,6 +1281,13 @@ class FinvizClient:
             'revenue_estimate': 'Revenue Estimate',
             'eps_actual': 'EPS Actual',
             'revenue_actual': 'Revenue Actual',
+            # eps_revision / revenue_revision: kept for forward
+            # compatibility, but the Finviz Elite CSV export does not
+            # expose these columns under any view (v=151, v=152 verified
+            # to return 151 columns with no "Revision" entry). The
+            # filter tokens (fa_epsrev_ep, fa_epsrev_eo<X>) still apply
+            # server-side; this mapping is a no-op for screener results.
+            # See issue #19. Re-enable once Finviz adds the column.
             'eps_revision': 'EPS Revision',
             'revenue_revision': 'Revenue Revision',
             
