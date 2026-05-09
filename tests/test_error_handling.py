@@ -409,18 +409,29 @@ class TestConcurrencyAndPerformance:
 
     @pytest.mark.asyncio
     async def test_slow_response_handling(self):
-        """Test handling of slow API responses."""
-        async def slow_response(*args, **kwargs):
-            await asyncio.sleep(2)  # Simulate slow response
-            return {"stocks": [], "total_count": 0, "execution_time": 2.0}
+        """Test handling of slow (synchronous) API responses.
+
+        ``FinvizScreener.earnings_screener`` is synchronous; passing an
+        ``async def`` to ``side_effect`` returns an unawaited coroutine and
+        the slow path is never actually exercised (RuntimeWarning, false
+        pass). Use a real synchronous ``time.sleep`` so the wrapper path
+        truly blocks for ~2 seconds within the 5-second outer wait_for
+        budget.
+        """
+        import time
+
+        def slow_response(*args, **kwargs):
+            time.sleep(2)
+            return []
 
         with patch.object(FinvizScreener, "earnings_screener") as mock_screener:
             mock_screener.side_effect = slow_response
 
-            # Should handle slow responses without hanging
             result = await asyncio.wait_for(
-                server.call_tool("earnings_screener", {"earnings_date": "today_after"}),
-                timeout=5.0
+                server.call_tool(
+                    "earnings_screener", {"earnings_date": "today_after"}
+                ),
+                timeout=5.0,
             )
             assert result is not None
 
