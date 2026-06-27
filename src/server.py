@@ -30,7 +30,7 @@ from .utils.validators import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-server = FastMCP("Finviz MCP Server")
+server = FastMCP("Finviz MCP Server", host="0.0.0.0", port=int(os.getenv("PORT", os.getenv("MCP_PORT", "8000"))))
 
 # Initialize Finviz clients
 finviz_api_key = os.getenv("FINVIZ_API_KEY")
