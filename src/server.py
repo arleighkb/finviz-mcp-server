@@ -2298,7 +2298,7 @@ def cli_main():
                 "reviews/REVIEW_TRACKING.md."
             )
         logger.info(f"Starting MCP server with {transport} transport on {host}:{port}")
-        server.run(transport=transport, host=host, port=port)
+        server.run(transport=transport)
     else:
         server.run()
 
