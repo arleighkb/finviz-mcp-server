@@ -2274,33 +2274,24 @@ def technical_analysis_screener(
 
 
 def cli_main():
-    """CLI entry point - supports stdio (default) and sse transport for Docker.
+    """CLI entry point - supports stdio (default) and sse transport for Docker."""
+    import os
 
-    The HTTP/SSE bind defaults to ``127.0.0.1`` (loopback). Override with
-    ``MCP_HOST=0.0.0.0`` only when you need the server reachable from
-    outside the host (e.g. inside a Docker container with host port
-    mapping). See README and Finding #6 in reviews/REVIEW_TRACKING.md.
-    """
     transport = os.getenv("MCP_TRANSPORT", "stdio")
+    host = os.getenv("MCP_HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", os.getenv("MCP_PORT", "8000")))
 
-    if transport in ("sse", "streamable-http"):
-        host = os.getenv("MCP_HOST", "127.0.0.1")
-        port = int(os.getenv("MCP_PORT", "8000"))
-        if host == "0.0.0.0":  # noqa: S104 - intentional opt-in pattern
-            logger.warning(
-                "MCP_HOST=0.0.0.0 binds the server to all network "
-                "interfaces. For local-only access, use MCP_HOST=127.0.0.1 "
-                "(the new default). If you are running in Docker and need "
-                "host-side access, keep MCP_HOST=0.0.0.0 inside the "
-                "container and restrict exposure via host port mapping "
-                "(e.g. -p 127.0.0.1:8000:8000). Public exposure also "
-                "requires DNS rebinding protection — see Finding #6 in "
-                "reviews/REVIEW_TRACKING.md."
-            )
-        logger.info(f"Starting MCP server with {transport} transport on {host}:{port}")
-        server.run(transport=transport)
+    print("Starting Finviz MCP Server...")
+    print("Press Ctrl+C to stop the server")
+
+    if transport == "sse":
+        server.settings.host = host
+        server.settings.port = port
+        logger.info(f"Starting MCP server with sse transport on {host}:{port}")
+        server.run(transport="sse")
     else:
-        server.run()
+        logger.info("Starting MCP server with stdio transport")
+        server.run(transport="stdio")
 
 
 @server.tool()
