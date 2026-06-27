@@ -1,30 +1,24 @@
-# Finviz MCP Server Docker Image
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements first for better caching
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code
 COPY src/ ./src/
 COPY pyproject.toml .
 COPY run_server.py .
 
-# Install the package
 RUN pip install --no-cache-dir .
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV LOG_LEVEL=INFO
 ENV RATE_LIMIT_REQUESTS_PER_MINUTE=100
+ENV MCP_TRANSPORT=sse
+ENV MCP_HOST=0.0.0.0
+ENV MCP_PORT=8000
+ENV PORT=8000
 
-# Expose port for SSE transport
 EXPOSE 8000
 
-# Default command - use the installed entry point
-CMD ["finviz-mcp-server"]
+CMD ["sh", "-c", "MCP_TRANSPORT=sse MCP_HOST=0.0.0.0 MCP_PORT=${PORT:-8000} finviz-mcp-server"]
